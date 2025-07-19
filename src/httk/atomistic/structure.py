@@ -35,6 +35,8 @@ from httk.atomistic.representativestructure import RepresentativeStructure
 from httk.atomistic.spacegrouputils import spacegroup_get_number_and_setting
 
 
+from httk.atomistic.moleculeutils import *
+
 class Structure(HttkObject):
 
     """
@@ -378,7 +380,7 @@ class Structure(HttkObject):
             if rc_sites_exception is not None:
                 reraise_from(Exception,"Sites creation raised an exception",rc_sites_exception)
             if rc_cell is not None and rc_sites is not None and hall_symbol is None:
-                reraise_from(Exception,"Spacegroup creation raised an exception",spacegroup_exception)
+                reraise_from(Exception,"Spacegroup creation raised an exception",rc_spacegroup_exception)
             if uc_cell_exception is not None:
                 reraise_from(Exception,"Cell creation raised an exception", uc_cell_exception)
             if uc_sites_exception is not None:
@@ -440,6 +442,87 @@ class Structure(HttkObject):
                               hall_symbol=other.hall_symbol)
 
         raise Exception("Structure.use: do not know how to use object of class:"+str(other.__class__))
+
+    def to_molecule_no_defect(self, layers, structure_type, ref=FracVector((1, 1, 1), 2), termination_group='H'):
+        old_cell = self.uc_cell
+        new_cell = Cell.create(basis=old_cell.basis)
+
+        coordgroups = [[coord for coord in group] for group in self.uc_reduced_coordgroups]
+
+        number_of_elements = len(coordgroups)
+        ref = closest_coord(coordgroups, ref)
+        ord, radius, max_layers = determine_norm_and_radius(structure_type)
+
+        if layers > max_layers:
+            raise Exception("layers is to large. The model will try to access atoms outside the cell")
+
+        atom_layers = atomlayer(coordgroups, ref, radius=radius, ord=ord)
+
+        new_coordgroups = merge_layers(atom_layers, layers+1)
+        new_assignments = self.assignments.symbols
+
+        if termination_group:
+            
+            termination_groups = atom_layers[layers+1]
+            outer_layer_groups = atom_layers[layers]
+            termination_layer = terminationlayer(outer_layer_groups, termination_groups)
+
+            new_coordgroups.append(termination_layer)
+            new_assignments = new_assignments + [termination_group]
+
+
+        new_coordgroups = center_coordgroups(new_coordgroups, ref)
+
+        new_struct = Structure.create(uc_reduced_coordgroups=new_coordgroups, uc_basis=new_cell.basis, assignments = new_assignments)
+        return new_struct
+
+
+    "Warning: If layers is sufficiently large this function will try to access atoms outside of the unitcell wich is not well defined"
+    def to_molecule(self, host_struct, layers, defect_type=None, defect_coords=None, termination_group='H'):
+        old_cell = self.uc_cell
+        new_cell = Cell.create(basis=old_cell.basis)
+        
+        defect_coordgroups = [[coord for coord in group] for group in self.uc_reduced_coordgroups]
+        host_coordgroups = [[coord for coord in group] for group in host_struct.uc_reduced_coordgroups]
+        defect_coords = [coord for coord in defect_coords]
+
+        number_of_elements = len(defect_coordgroups)
+        ref = closest_coord(host_coordgroups, defect_coords[0])
+        ord, radius, max_layers = determine_norm_and_radius(defect_type)
+
+        if layers > max_layers:
+            raise Exception("layers is to large. The model will try to access atoms outside the cell")
+
+        pre_process(defect_coordgroups, defect_type, defect_coords)
+        atom_layers = atomlayer(defect_coordgroups, ref, radius=radius, ord=ord)
+        new_defect_coordgroups = merge_layers(atom_layers, layers)
+        post_process(new_defect_coordgroups, defect_type, defect_coords)
+
+        host_atom_layers = atomlayer(host_coordgroups, ref, radius=radius, ord=ord)
+        append_coordgroups(new_defect_coordgroups, host_atom_layers[layers])
+        new_host_coordgroups = merge_layers(host_atom_layers, layers+1)
+
+        new_defect_assignments = self.assignments.symbols
+        new_host_assignments = host_struct.assignments.symbols
+
+        if termination_group:
+            
+            termination_groups = host_atom_layers[layers+1]
+            outer_layer_groups = host_atom_layers[layers]
+            termination_layer = terminationlayer(outer_layer_groups, termination_groups)
+
+            new_defect_coordgroups.append(termination_layer)
+            new_defect_assignments = new_defect_assignments + [termination_group]
+
+            new_host_coordgroups.append(termination_layer)
+            new_host_assignments = new_host_assignments + [termination_group]
+
+        new_defect_coordgroups = center_coordgroups(new_defect_coordgroups, ref)
+        new_host_coordgroups = center_coordgroups(new_host_coordgroups, ref)
+
+        new_defect_struct = Structure.create(uc_reduced_coordgroups=new_defect_coordgroups, uc_basis=new_cell.basis, assignments = new_defect_assignments)
+        new_host_struct = Structure.create(uc_reduced_coordgroups=new_host_coordgroups, uc_basis=new_cell.basis, assignments = new_host_assignments)
+        return new_defect_struct, new_host_struct
 
     @property
     def uc(self):
@@ -613,7 +696,7 @@ class Structure(HttkObject):
 
     @property
     def uc_cartesian_coords(self):
-        return self.uc.uc_cartesian_coords
+        return self.uc.get_cartesian_coords
 
     @property
     def uc_lengths_and_angles(self):
