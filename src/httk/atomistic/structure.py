@@ -523,6 +523,19 @@ class Structure(HttkObject):
         new_defect_struct = Structure.create(uc_reduced_coordgroups=new_defect_coordgroups, uc_basis=new_cell.basis, assignments = new_defect_assignments)
         new_host_struct = Structure.create(uc_reduced_coordgroups=new_host_coordgroups, uc_basis=new_cell.basis, assignments = new_host_assignments)
         return new_defect_struct, new_host_struct
+    
+    
+    def generate_XYZ_file(self, file, comment = "Generated XYZ file"):
+        coordgroups = [[coord.to_floats() for coord in coords] for coords in self.uc_reduced_coordgroups]
+        symbols = self.assignments.symbols
+        n_atoms = sum([len(coords) for coords in coordgroups], 0)
+
+        with open(file, 'w') as f:
+            f.write(f"{n_atoms}\n")
+            f.write(f"{comment}\n")
+            for element in range(len(symbols)):
+                for coord in coordgroups[element]:
+                    f.write(f"{symbols[element]} {coord[0]} {coord[1]} {coord[2]}\n")
 
     @property
     def uc(self):
@@ -547,6 +560,7 @@ class Structure(HttkObject):
                 self._other_reps['uc'] = self._other_reps['pc']
             #print("RESULT",self._other_reps['pc'].uc_basis.to_floats(), self._other_reps['pc'].uc_sites.reduced_coordgroups.to_floats())
         return self._other_reps['pc']
+    
 
     @property
     def cc(self):
