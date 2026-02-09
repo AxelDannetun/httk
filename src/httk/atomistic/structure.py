@@ -499,10 +499,13 @@ class Structure(HttkObject):
         post_process(new_defect_coordgroups, defect_type, defect_coords)
 
         host_atom_layers = atomlayer(host_coordgroups, ref, radius=radius, ord=ord)
-        append_coordgroups(new_defect_coordgroups, host_atom_layers[layers])
+        #append_coordgroups(new_defect_coordgroups, host_atom_layers[layers])
+        for group in range(len(host_atom_layers[layers])):
+            new_defect_coordgroups.append(host_atom_layers[layers][group])
         new_host_coordgroups = merge_layers(host_atom_layers, layers+1)
 
-        new_defect_assignments = self.assignments.symbols
+        new_defect_assignments = self.assignments.symbols + host_struct.assignments.symbols
+        print(new_defect_coordgroups)
         new_host_assignments = host_struct.assignments.symbols
 
         if termination_group:
