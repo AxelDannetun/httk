@@ -449,7 +449,6 @@ class Structure(HttkObject):
 
         coordgroups = [[coord for coord in group] for group in self.uc_reduced_coordgroups]
 
-        number_of_elements = len(coordgroups)
         ref = closest_coord(coordgroups, ref)
         ord, radius, max_layers = determine_norm_and_radius(structure_type)
 
@@ -461,6 +460,9 @@ class Structure(HttkObject):
         new_coordgroups = merge_layers(atom_layers, layers+1)
         new_assignments = self.assignments.symbols
 
+        core_end_idx = len(new_coordgroups)
+
+        tags = None
         if termination_group:
             
             termination_groups = atom_layers[layers+1]
@@ -470,10 +472,12 @@ class Structure(HttkObject):
             new_coordgroups.append(termination_layer)
             new_assignments = new_assignments + [termination_group]
 
+            tags = {'termination_layer' : core_end_idx}
+
 
         new_coordgroups = center_coordgroups(new_coordgroups, ref)
 
-        new_struct = Structure.create(uc_reduced_coordgroups=new_coordgroups, uc_basis=new_cell.basis, assignments = new_assignments)
+        new_struct = Structure.create(uc_reduced_coordgroups=new_coordgroups, uc_basis=new_cell.basis, assignments=new_assignments, tags=tags)
         return new_struct
 
 
@@ -486,7 +490,6 @@ class Structure(HttkObject):
         host_coordgroups = [[coord for coord in group] for group in host_struct.uc_reduced_coordgroups]
         defect_coords = [coord for coord in defect_coords]
 
-        number_of_elements = len(defect_coordgroups)
         ref = closest_coord(host_coordgroups, defect_coords[0])
         ord, radius, max_layers = determine_norm_and_radius(defect_type)
 
@@ -498,15 +501,21 @@ class Structure(HttkObject):
         new_defect_coordgroups = merge_layers(atom_layers, layers)
         post_process(new_defect_coordgroups, defect_type, defect_coords)
 
+        defect_core_end_idx  = len(new_defect_coordgroups)
+
         host_atom_layers = atomlayer(host_coordgroups, ref, radius=radius, ord=ord)
-        #append_coordgroups(new_defect_coordgroups, host_atom_layers[layers])
         for group in range(len(host_atom_layers[layers])):
             new_defect_coordgroups.append(host_atom_layers[layers][group])
         new_host_coordgroups = merge_layers(host_atom_layers, layers+1)
 
+        defect_host_end_idx = len(new_defect_coordgroups)
+        host_core_end_idx = len(new_host_coordgroups)
+
         new_defect_assignments = self.assignments.symbols + host_struct.assignments.symbols
-        print(new_defect_coordgroups)
         new_host_assignments = host_struct.assignments.symbols
+
+        defect_tags = {'host_layer' : defect_core_end_idx}
+        host_tags = None
 
         if termination_group:
             
@@ -520,11 +529,14 @@ class Structure(HttkObject):
             new_host_coordgroups.append(termination_layer)
             new_host_assignments = new_host_assignments + [termination_group]
 
+            defect_tags['termination_layer'] = defect_host_end_idx
+            host_tags = {'termination_layer' : host_core_end_idx}
+
         new_defect_coordgroups = center_coordgroups(new_defect_coordgroups, ref)
         new_host_coordgroups = center_coordgroups(new_host_coordgroups, ref)
 
-        new_defect_struct = Structure.create(uc_reduced_coordgroups=new_defect_coordgroups, uc_basis=new_cell.basis, assignments = new_defect_assignments)
-        new_host_struct = Structure.create(uc_reduced_coordgroups=new_host_coordgroups, uc_basis=new_cell.basis, assignments = new_host_assignments)
+        new_defect_struct = Structure.create(uc_reduced_coordgroups=new_defect_coordgroups, uc_basis=new_cell.basis, assignments=new_defect_assignments, tags=defect_tags)
+        new_host_struct = Structure.create(uc_reduced_coordgroups=new_host_coordgroups, uc_basis=new_cell.basis, assignments=new_host_assignments, tags=host_tags)
         return new_defect_struct, new_host_struct
     
     
@@ -539,6 +551,37 @@ class Structure(HttkObject):
             for element in range(len(symbols)):
                 for coord in coordgroups[element]:
                     f.write(f"{symbols[element]} {coord[0]} {coord[1]} {coord[2]}\n")
+
+        
+    @property
+    def nested_layers(self):
+        tags = self.get_tags() 
+        
+        total_groups = len(self.uc_reduced_coordgroups) 
+    
+        if 'termination_layer' in tags:
+            term_idx = int(tags['termination_layer'].value) 
+        else:
+            term_idx = total_groups
+
+        if 'host_layer' in tags:
+            host_idx = int(tags['host_layer'].value) 
+        else:
+            host_idx = term_idx
+
+        coords = self.uc_reduced_coordgroups 
+        symbols = self.assignments.symbols 
+
+        coords = [coords[:host_idx], coords[host_idx:term_idx], coords[term_idx:]]
+        assignments = [symbols[:host_idx], symbols[host_idx:term_idx], symbols[term_idx:]]
+        
+        nested_coords = [layer for layer in coords if len(layer) > 0]
+        nested_assigns = [layer for layer in assignments if len(layer) > 0]
+        
+        return {
+            'coords': nested_coords,
+            'assignments': nested_assigns
+        }
 
     @property
     def uc(self):
