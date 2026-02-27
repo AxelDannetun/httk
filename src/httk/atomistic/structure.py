@@ -552,9 +552,7 @@ class Structure(HttkObject):
                 for coord in coordgroups[element]:
                     f.write(f"{symbols[element]} {coord[0]} {coord[1]} {coord[2]}\n")
 
-        
-    @property
-    def nested_layers(self):
+    def layer_indices(self):
         tags = self.get_tags() 
         
         total_groups = len(self.uc_reduced_coordgroups) 
@@ -568,6 +566,44 @@ class Structure(HttkObject):
             host_idx = int(tags['host_layer'].value) 
         else:
             host_idx = term_idx
+
+        return host_idx, term_idx
+    
+    def get_coordgroups_layer(self, layer):
+
+        host_idx, term_idx = self.layer_indices()
+
+        if layer == 'core_layer':
+            return self.uc_reduced_coordgroups[:host_idx]
+
+        if layer not in self.get_tags():
+            raise Exception(f"The structure does not contains a {layer}")
+
+        if layer == 'host_layer':
+            return self.uc_reduced_coordgroups[host_idx:term_idx]
+        
+        return self.uc_reduced_coordgroups[term_idx:]
+    
+    def get_assignments_layer(self, layer):
+
+        host_idx, term_idx = self.layer_indices()
+
+        if layer == 'core_layer':
+            return self.assignments.symbols[:host_idx]
+
+        if layer not in self.get_tags():
+            raise Exception(f"The structure does not contains a {layer}")
+
+        if layer == 'host_layer':
+            return self.assignments.symbols[host_idx:term_idx]
+        
+        return self.assignments.symbols[term_idx:]
+
+        
+    @property
+    def nested_layers(self):
+        
+        host_idx, term_idx = self.layer_indices()
 
         coords = self.uc_reduced_coordgroups 
         symbols = self.assignments.symbols 
