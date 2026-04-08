@@ -482,24 +482,26 @@ class Structure(HttkObject):
 
 
     "Warning: If layers is sufficiently large this function will try to access atoms outside of the unitcell wich is not well defined"
-    def to_molecule(self, host_struct, layers, defect_type=None, defect_coords=None, termination_group='H'):
+    def to_molecule(self, host_struct, layers, defect_cell=None, defect_type=None, termination_group='H'):
         old_cell = self.uc_cell
         new_cell = Cell.create(basis=old_cell.basis)
+
+        element_to_idx = {element: i for i, element in enumerate(self.assignments.symbols)}
+        defect_infos = parse_defect_cell(defect_cell, element_to_idx)
         
         defect_coordgroups = [[coord for coord in group] for group in self.uc_reduced_coordgroups]
         host_coordgroups = [[coord for coord in group] for group in host_struct.uc_reduced_coordgroups]
-        defect_coords = [coord for coord in defect_coords]
 
-        ref = closest_coord(host_coordgroups, defect_coords[0])
+        ref = closest_coord(host_coordgroups, anchor(defect_cell))
         ord, radius, max_layers = determine_norm_and_radius(defect_type)
 
         if layers > max_layers:
             raise Exception("layers is to large. The model will try to access atoms outside the cell")
 
-        pre_process(defect_coordgroups, defect_type, defect_coords)
+        pre_process(defect_coordgroups, defect_infos)
         atom_layers = atomlayer(defect_coordgroups, ref, radius=radius, ord=ord)
         new_defect_coordgroups = merge_layers(atom_layers, layers)
-        post_process(new_defect_coordgroups, defect_type, defect_coords)
+        post_process(new_defect_coordgroups, defect_infos)
 
         defect_core_end_idx  = len(new_defect_coordgroups)
 

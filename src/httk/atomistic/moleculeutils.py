@@ -106,34 +106,69 @@ def determine_norm_and_radius(defect_type):
             raise Exception('Defect ' + defect_type + 'is not supported')
     return ord, radius, max_layers
 
-def pre_process(defect_coordgroups, defect_type, defect_coords):
-    match defect_type:
-        case 'NV' : 
-            defect_coordgroups[0].append(defect_coords[0])
-            defect_coordgroups[0].append(defect_coords[1])
-        case 'BiV':
-            defect_coordgroups[0].append(defect_coords[0])
-            defect_coordgroups[1].append(defect_coords[1])
-        #case 'Tricky':
-        case _:
-            raise Exception('Defect ' + defect_type + 'is not supported')
+
+def parse_defect_cell(defect_cell, element_to_idx):
+    parsed_defects = []
+    
+    for defect, coord in zip(defect_cell.defect_types, defect_cell.defect_positions):
+        parts = defect.split('_')
+        
+        info = {
+            "original_string": defect,
+            "index": parts[0],
+            "type": None,
+            "host_element": None,
+            "defect_element": None,
+            'coord' : coord
+        }
+
+        if "Vac" in defect:
+            info["type"] = "Vac"  
+            info["host_element"] = element_to_idx[ parts[2].split('(')[0] ]
+            
+        elif "Int" in defect:
+            info["type"] = "Int" # Remove the extra atom
+            info["defect_element"] = element_to_idx[ parts[2] ]
+            #TODO: This case is more complex and has additional information that needs to be parsed.
+
+        else:
+            info["type"] = "Replace"
+            info["defect_element"] = element_to_idx[ parts[1] ]
+            info["host_element"] = element_to_idx[ parts[2].split('(')[0] ]
+            
+        parsed_defects.append(info)
+    
+    return parsed_defects
+
+def pre_process(defect_coordgroups, defect_infos):
+    for defect_info in defect_infos:
+        match defect_info['type']:
+            case 'Vac':
+                defect_coordgroups[defect_info['host_element']].append(defect_info['coord'])
+            case 'Replace':
+                defect_coordgroups[defect_info['host_element']].append(defect_info['coord'])
+                #TODO: The coordinate of defect is the coordinate for a perfect material. This following codes assumes that the defect element
+                #      is unique, i.e. that no other element in the structure is the same as the defect element.
+                #       Might want to find the new coordinate by allowing an epsilon error.
+                defect_info['new_coord'] = defect_coordgroups[defect_info['defect_element']][0] 
+                defect_coordgroups[defect_info['defect_element']].remove(defect_info['new_coord'])
+            case 'Int':
+                raise Exception('The defect type' + defect_info['type'] + 'is not supported')
+   
 
 
-def post_process(new_coordgroups, defect_type, defect_coords):
-    match defect_type:
-        case 'NV': 
-            if (defect_coords[0] in new_coordgroups[0]):
-                new_coordgroups[0].remove(defect_coords[0])
-            if (defect_coords[1] in new_coordgroups[0]):
-                new_coordgroups[0].remove(defect_coords[1])
-        case 'BiV':
-            if (defect_coords[0] in new_coordgroups[0]):
-                new_coordgroups[0].remove(defect_coords[0])
-            if (defect_coords[1] in new_coordgroups[1]):
-                new_coordgroups[1].remove(defect_coords[1])
-        #case 'Tricky':
-        case _:
-            raise Exception('Defect ' + defect_type + 'is not supported')
+def post_process(new_coordgroups, defect_infos):
+    for defect_info in defect_infos:
+        match defect_info['type']:
+            case 'Vac':
+                new_coordgroups[defect_info['host_element']].remove(defect_info['coord'])
+            case 'Replace':
+                new_coordgroups[defect_info['host_element']].remove(defect_info['coord'])
+                new_coordgroups[defect_info['defect_element']].append(defect_info['new_coord'])
+            case 'Int':
+                raise Exception('The defect type' + defect_info['type'] + 'is not supported')
+            
+ 
 
 def merge_layers(atom_layers, layers):
     number_of_elements = len(atom_layers[0])
@@ -150,6 +185,12 @@ def append_coordgroups(coordgroups, new_coordgroups):
     for group in range(len(new_coordgroups)):
             for coord in new_coordgroups[group]:
                 coordgroups[group].append(coord)
+
+
+def anchor(defect_infos, vac = 1.0):
+    #TODO: Sophisticate calc
+    
+    return defect_cell.defect_positions[0]
 
 
 
