@@ -486,13 +486,23 @@ class Structure(HttkObject):
         old_cell = self.uc_cell
         new_cell = Cell.create(basis=old_cell.basis)
 
-        element_to_idx = {element: i for i, element in enumerate(self.assignments.symbols)}
+        symbols = ['Si', 'C']
+        element_to_idx = {element: i for i, element in enumerate(symbols)}#self.assignments.symbols)}
+        print(element_to_idx)
         defect_infos = parse_defect_cell(defect_cell, element_to_idx)
         
-        defect_coordgroups = [[coord for coord in group] for group in self.uc_reduced_coordgroups]
+        defect_coordgroups = [[], []]
+        for i in range(len(self.uc_reduced_coordgroups)):
+            if self.assignments.symbols[i] == 'Si':
+                for coord in self.uc_reduced_coordgroups[i]:
+                    defect_coordgroups[0].append(coord)
+            else:
+                for coord in self.uc_reduced_coordgroups[i]:
+                    defect_coordgroups[1].append(coord)
+        #defect_coordgroups = [[coord for coord in group] for group in self.uc_reduced_coordgroups]
         host_coordgroups = [[coord for coord in group] for group in host_struct.uc_reduced_coordgroups]
 
-        ref = closest_coord(host_coordgroups, anchor(defect_cell))
+        ref = closest_coord(host_coordgroups, anchor(defect_infos, defect_type='Replace'))
         ord, radius, max_layers = determine_norm_and_radius(defect_type)
 
         if layers > max_layers:
@@ -506,14 +516,16 @@ class Structure(HttkObject):
         defect_core_end_idx  = len(new_defect_coordgroups)
 
         host_atom_layers = atomlayer(host_coordgroups, ref, radius=radius, ord=ord)
-        for group in range(len(host_atom_layers[layers])):
-            new_defect_coordgroups.append(host_atom_layers[layers][group])
+        #for group in range(len(host_atom_layers[layers])):
+        #    new_defect_coordgroups.append(host_atom_layers[layers][group])
         new_host_coordgroups = merge_layers(host_atom_layers, layers+1)
 
         defect_host_end_idx = len(new_defect_coordgroups)
         host_core_end_idx = len(new_host_coordgroups)
 
-        new_defect_assignments = self.assignments.symbols + host_struct.assignments.symbols
+        print(self.assignments.symbols)
+        print(host_struct.assignments.symbols)
+        new_defect_assignments = symbols# + ['O', 'Bi'] #self.assignments.symbols + host_struct.assignments.symbols
         new_host_assignments = host_struct.assignments.symbols
 
         defect_tags = {'host_layer' : defect_core_end_idx}
@@ -536,6 +548,9 @@ class Structure(HttkObject):
 
         new_defect_coordgroups = center_coordgroups(new_defect_coordgroups, ref)
         new_host_coordgroups = center_coordgroups(new_host_coordgroups, ref)
+
+        #print(new_defect_coordgroups)
+        #print(new_defect_assignments)
 
         new_defect_struct = Structure.create(uc_reduced_coordgroups=new_defect_coordgroups, uc_basis=new_cell.basis, assignments=new_defect_assignments, tags=defect_tags)
         new_host_struct = Structure.create(uc_reduced_coordgroups=new_host_coordgroups, uc_basis=new_cell.basis, assignments=new_host_assignments, tags=host_tags)

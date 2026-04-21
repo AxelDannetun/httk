@@ -55,6 +55,8 @@ def atomlayer(coordgroups, ref=FracVector((1, 1, 1), 2), radius=0.13, ord="L2"):
             for coord in group:
                 append_layer(new_layer, coordgroups, coord, radius=radius, ord=ord)
         layer = new_layer
+        if empty(layer):
+            break
         layers.append(new_layer)
 
     return layers    
@@ -67,6 +69,14 @@ def closest_coord(coordgroups, defect_coord = FracVector((1, 1, 1), 2)):
         for coord in group:
             if dist(coord, defect_coord, "L2") < dist(best, defect_coord, "L2"):
                     best = coord
+    return best
+
+def closest_coord2(coords, ref):
+    best = coords[0]
+    for coord in coords:
+        if dist(coord, ref, "L2") < dist(best, ref, "L2"):
+            best = coord
+
     return best
 
 def center_coordgroups(coordgroups, ref):
@@ -98,10 +108,11 @@ def determine_norm_and_radius(defect_type):
         case 'BiV' | 'SiC':
             ord = 'Cube' 
             radius = 0.19
-            max_layers = 2
-        #case 'Tricky':
-        #    ord = 'L2'
-        #    radius = 0.15
+            max_layers = 3
+        case 'Tricky':
+            ord = 'L2'
+            radius = 0.135
+            max_layers = 5
         case _:
             raise Exception('Defect ' + defect_type + 'is not supported')
     return ord, radius, max_layers
@@ -128,7 +139,7 @@ def parse_defect_cell(defect_cell, element_to_idx):
             
         elif "Int" in defect:
             info["type"] = "Int" # Remove the extra atom
-            info["defect_element"] = element_to_idx[ parts[2] ]
+            info["defect_element"] = element_to_idx[ parts[2].split('(')[0] ]
             #TODO: This case is more complex and has additional information that needs to be parsed.
 
         else:
@@ -146,13 +157,17 @@ def pre_process(defect_coordgroups, defect_infos):
             case 'Vac':
                 defect_coordgroups[defect_info['host_element']].append(defect_info['coord'])
             case 'Replace':
+                defect_info['new_coord'] = closest_coord2(defect_coordgroups[defect_info['defect_element']], defect_info['coord'])
                 defect_coordgroups[defect_info['host_element']].append(defect_info['coord'])
                 #TODO: The coordinate of defect is the coordinate for a perfect material. This following codes assumes that the defect element
                 #      is unique, i.e. that no other element in the structure is the same as the defect element.
                 #       Might want to find the new coordinate by allowing an epsilon error.
-                defect_info['new_coord'] = defect_coordgroups[defect_info['defect_element']][0] 
+                #defect_info['new_coord'] = defect_coordgroups[defect_info['defect_element']][0]            
                 defect_coordgroups[defect_info['defect_element']].remove(defect_info['new_coord'])
             case 'Int':
+                defect_info['coord'] = closest_coord2(defect_coordgroups[defect_info['defect_element']], defect_info['coord'])
+                defect_coordgroups[defect_info['defect_element']].remove(defect_info['coord'])
+            case _:
                 raise Exception('The defect type' + defect_info['type'] + 'is not supported')
    
 
@@ -166,6 +181,8 @@ def post_process(new_coordgroups, defect_infos):
                 new_coordgroups[defect_info['host_element']].remove(defect_info['coord'])
                 new_coordgroups[defect_info['defect_element']].append(defect_info['new_coord'])
             case 'Int':
+                new_coordgroups[defect_info['defect_element']].append(defect_info['coord'])
+            case _:
                 raise Exception('The defect type' + defect_info['type'] + 'is not supported')
             
  
@@ -187,10 +204,13 @@ def append_coordgroups(coordgroups, new_coordgroups):
                 coordgroups[group].append(coord)
 
 
-def anchor(defect_infos, vac = 1.0):
+def anchor(defect_infos, defect_type = 'Vac'):
     #TODO: Sophisticate calc
-    
-    return defect_cell.defect_positions[0]
+    for defect_info in defect_infos:
+        if defect_info['type'] == defect_type:
+            return defect_info['coord']
+        
+    return FracVector((1, 1, 1), 2)
 
 
 
