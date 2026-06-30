@@ -210,7 +210,7 @@ class Cell(HttkObject):
         newcoordgroups = []
         for coordgroup in coordgroups:
             newcoordgroups += [self.coords_reduced_to_cartesian(coordgroup)]
-        return FracVector.stack(newcoordgroups)
+        return FracVector.stack_vecs(newcoordgroups)
 
     def coords_cartesian_to_reduced(self, coords):
         coords = FracVector.use(coords)

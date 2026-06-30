@@ -34,6 +34,8 @@ from httk.atomistic.unitcellstructure import UnitcellStructure
 from httk.atomistic.representativestructure import RepresentativeStructure
 from httk.atomistic.spacegrouputils import spacegroup_get_number_and_setting
 
+import numpy as np
+
 
 from httk.atomistic.moleculeutils import *
 
@@ -445,9 +447,12 @@ class Structure(HttkObject):
 
     def to_molecule_no_defect(self, layers, structure_type, ref=FracVector((1, 1, 1), 2), termination_group='H'):
         old_cell = self.uc_cell
+        print('basis')
+        print(old_cell.basis)
+
         new_cell = Cell.create(basis=old_cell.basis)
 
-        coordgroups = [[coord for coord in group] for group in self.uc_reduced_coordgroups]
+        coordgroups = copy_coordgroups(self.uc_reduced_coordgroups, self.assignments.symbols, merge=True)
 
         ref = closest_coord(coordgroups, ref)
         ord, radius, max_layers = determine_norm_and_radius(structure_type)
@@ -458,22 +463,20 @@ class Structure(HttkObject):
         atom_layers = atomlayer(coordgroups, ref, radius=radius, ord=ord)
 
         new_coordgroups = merge_layers(atom_layers, layers+1)
-        new_assignments = self.assignments.symbols
+        new_assignments = list(dict.fromkeys(self.assignments.symbols))
 
         core_end_idx = len(new_coordgroups)
 
         tags = None
         if termination_group:
-            
             termination_groups = atom_layers[layers+1]
             outer_layer_groups = atom_layers[layers]
-            termination_layer = terminationlayer(outer_layer_groups, termination_groups)
+            termination_layer = terminationlayer(outer_layer_groups, termination_groups, ref)
 
             new_coordgroups.append(termination_layer)
             new_assignments = new_assignments + [termination_group]
 
             tags = {'termination_layer' : core_end_idx}
-
 
         new_coordgroups = center_coordgroups(new_coordgroups, ref)
 
@@ -481,82 +484,154 @@ class Structure(HttkObject):
         return new_struct
 
 
+    def match_host_to_defect_cell(host, defect):
+        target_cell = defect.uc_cell
+        target_basis_float = np.array(target_cell.basis.to_floats())
+        inv_target_basis = np.linalg.inv(target_basis_float)
+
+        host_cartesian_coordgroups = host.uc_cell.coordgroups_reduced_to_cartesian(host.uc_reduced_coordgroups)
+        new_reduced_coordgroups = []
+
+        for group in host_cartesian_coordgroups:
+            group_float = np.array(group.to_floats())
+            if group_float.size == 0:
+                new_reduced_coordgroups.append([])
+                continue
+                
+            reduced_group_float = np.dot(group_float, inv_target_basis)
+            reduced_group_float = reduced_group_float % 1.0
+
+            new_reduced_coordgroups.append(reduced_group_float.tolist())
+
+        new_uc_coordgroups = FracVector.create(new_reduced_coordgroups)
+
+        aligned_host = Structure.create(assignments=host.assignments, uc_cell=target_cell, uc_reduced_coordgroups=new_uc_coordgroups)
+        return aligned_host
+
+
+
     "Warning: If layers is sufficiently large this function will try to access atoms outside of the unitcell wich is not well defined"
-    def to_molecule(self, host_struct, layers, defect_cell=None, defect_type=None, termination_group='H'):
-        old_cell = self.uc_cell
-        new_cell = Cell.create(basis=old_cell.basis)
+    def to_molecule(self, host_struct, layers, defect_cell=None, defect_type=None, center = None, termination_group='H'):
+        """
+        Build defect and host molecule structures for the current structure.
 
-        symbols = ['Si', 'C']
-        element_to_idx = {element: i for i, element in enumerate(symbols)}#self.assignments.symbols)}
-        print(element_to_idx)
-        defect_infos = parse_defect_cell(defect_cell, element_to_idx)
+        Args:
+            host_struct: Host Structure object.
+            layers: Number of coordination layers to include around the defect.
+            defect_cell: Defect cell descriptor with defect_types and defect_positions.
+            defect_type: Defect type string used to select geometry parameters.
+            center: Center type string used to select the defect center.
+            termination_group: Element symbol used to cap the surface.
+
+        Returns:
+            tuple: (new_defect_struct, new_R',host_struct)
+        """
+        print(self.uc_cell.basis)
+        print(host_struct.uc_cell.basis)
         
-        defect_coordgroups = [[], []]
-        for i in range(len(self.uc_reduced_coordgroups)):
-            if self.assignments.symbols[i] == 'Si':
-                for coord in self.uc_reduced_coordgroups[i]:
-                    defect_coordgroups[0].append(coord)
-            else:
-                for coord in self.uc_reduced_coordgroups[i]:
-                    defect_coordgroups[1].append(coord)
-        #defect_coordgroups = [[coord for coord in group] for group in self.uc_reduced_coordgroups]
-        host_coordgroups = [[coord for coord in group] for group in host_struct.uc_reduced_coordgroups]
+        
+        host_struct = Structure.match_host_to_defect_cell(host_struct, self)
+        old_cell = self.uc_cell
+        host_cell = Cell.create(basis=host_struct.uc_cell.basis)
+        new_cell = old_cell.clean()
 
-        ref = closest_coord(host_coordgroups, anchor(defect_infos, defect_type='Replace'))
+        defect_coordgroups = copy_coordgroups(self.uc_reduced_coordgroups, self.assignments.symbols, merge=True)
+        host_coordgroups = copy_coordgroups(host_struct.uc_reduced_coordgroups, host_struct.assignments.symbols, merge=True)
+
+
+        unique_defect_symbols = list(dict.fromkeys(self.assignments.symbols))
+        unique_host_symbols = list(dict.fromkeys(host_struct.assignments.symbols))
+
+        element_to_idx = build_element_index(unique_defect_symbols)
+        defect_infos = parse_defect_cell(defect_cell, element_to_idx)
+
+        ref = closest_coord(host_coordgroups, anchor(defect_infos, defect_type=center))
+
         ord, radius, max_layers = determine_norm_and_radius(defect_type)
-
         if layers > max_layers:
-            raise Exception("layers is to large. The model will try to access atoms outside the cell")
+            raise Exception("layers is too large. The model will try to access atoms outside the cell")
 
         pre_process(defect_coordgroups, defect_infos)
         atom_layers = atomlayer(defect_coordgroups, ref, radius=radius, ord=ord)
         new_defect_coordgroups = merge_layers(atom_layers, layers)
         post_process(new_defect_coordgroups, defect_infos)
 
-        defect_core_end_idx  = len(new_defect_coordgroups)
+        defect_core_end_idx = len(new_defect_coordgroups)
 
         host_atom_layers = atomlayer(host_coordgroups, ref, radius=radius, ord=ord)
-        #for group in range(len(host_atom_layers[layers])):
-        #    new_defect_coordgroups.append(host_atom_layers[layers][group])
-        new_host_coordgroups = merge_layers(host_atom_layers, layers+1)
+        validate_host_layers(host_atom_layers, layers, termination_group is not None)
 
+        new_defect_coordgroups.extend(host_atom_layers[layers])
+        new_host_coordgroups = merge_layers(host_atom_layers, layers + 1)
+
+        defect_core_end_idx_val = defect_core_end_idx
+        
+        # Remove empty host groups and corresponding symbols
+        num_defect_symbols = len(unique_defect_symbols)
+        num_host_symbols = len(unique_host_symbols)
+        
+        host_groups_keep = []
+        host_symbols_keep = []
+        for i in range(num_host_symbols):
+            group_idx = num_defect_symbols + i
+            if len(new_defect_coordgroups[group_idx]) > 0:
+                host_groups_keep.append(new_defect_coordgroups[group_idx])
+                host_symbols_keep.append(unique_host_symbols[i])
+        
+        # Rebuild coordgroups and assignments
+        new_defect_coordgroups = new_defect_coordgroups[:num_defect_symbols] + host_groups_keep
+        new_defect_assignments = unique_defect_symbols + host_symbols_keep
+        
         defect_host_end_idx = len(new_defect_coordgroups)
         host_core_end_idx = len(new_host_coordgroups)
+        new_host_assignments = unique_host_symbols
 
-        print(self.assignments.symbols)
-        print(host_struct.assignments.symbols)
-        new_defect_assignments = symbols# + ['O', 'Bi'] #self.assignments.symbols + host_struct.assignments.symbols
-        new_host_assignments = host_struct.assignments.symbols
-
-        defect_tags = {'host_layer' : defect_core_end_idx}
+        defect_tags = {'host_layer': defect_core_end_idx_val}
         host_tags = None
 
         if termination_group:
-            
-            termination_groups = host_atom_layers[layers+1]
-            outer_layer_groups = host_atom_layers[layers]
-            termination_layer = terminationlayer(outer_layer_groups, termination_groups)
-
-            new_defect_coordgroups.append(termination_layer)
-            new_defect_assignments = new_defect_assignments + [termination_group]
-
-            new_host_coordgroups.append(termination_layer)
-            new_host_assignments = new_host_assignments + [termination_group]
-
-            defect_tags['termination_layer'] = defect_host_end_idx
-            host_tags = {'termination_layer' : host_core_end_idx}
+            new_defect_coordgroups, new_defect_assignments, new_host_coordgroups, new_host_assignments, defect_tags, host_tags = \
+                append_termination_layer(new_defect_coordgroups,
+                                         new_host_coordgroups,
+                                         host_atom_layers,
+                                         layers,
+                                         termination_group,
+                                         defect_core_end_idx,
+                                         defect_host_end_idx,
+                                         host_core_end_idx,
+                                         new_defect_assignments,
+                                         new_host_assignments,
+                                         ref)
 
         new_defect_coordgroups = center_coordgroups(new_defect_coordgroups, ref)
         new_host_coordgroups = center_coordgroups(new_host_coordgroups, ref)
 
-        #print(new_defect_coordgroups)
-        #print(new_defect_assignments)
+        new_defect_struct = Structure.create(uc_reduced_coordgroups=new_defect_coordgroups,
+                                             uc_basis=old_cell.basis,
+                                             assignments=new_defect_assignments,
+                                             tags=defect_tags)
+        new_host_struct = Structure.create(uc_reduced_coordgroups=new_host_coordgroups,
+                                           uc_basis=host_cell.basis,
+                                           assignments=new_host_assignments,
+                                           tags=host_tags)
 
-        new_defect_struct = Structure.create(uc_reduced_coordgroups=new_defect_coordgroups, uc_basis=new_cell.basis, assignments=new_defect_assignments, tags=defect_tags)
-        new_host_struct = Structure.create(uc_reduced_coordgroups=new_host_coordgroups, uc_basis=new_cell.basis, assignments=new_host_assignments, tags=host_tags)
+        print_atom_statistics(new_defect_struct)
+        print_atom_statistics(new_host_struct)
         return new_defect_struct, new_host_struct
-    
-    
+
+
+    def to_cartesian_coordgroups(self):
+        old_cell = self.uc_cell
+        identity_basis = FracVector.create([[1,0,0],[0,1,0],[0,0,1]])
+
+        coordgroups_reduced_to_cartesian = old_cell.coordgroups_reduced_to_cartesian(self.uc_reduced_coordgroups)
+        coordgroups_reduced_to_cartesian = coordgroups_reduced_to_cartesian.limit_denominator(5000000)
+        coordgroups_cart_list = [list(group) for group in coordgroups_reduced_to_cartesian.noms]
+        print(len(coordgroups_cart_list[1]), len(self.uc_reduced_coordgroups[1]))
+        return Structure.create(uc_reduced_coordgroups=coordgroups_cart_list,
+                                           uc_basis=identity_basis,
+                                           assignments=self.assignments)
+
     def generate_XYZ_file(self, file, comment = "Generated XYZ file"):
         coordgroups = [[coord.to_floats() for coord in coords] for coords in self.uc_reduced_coordgroups]
         symbols = self.assignments.symbols
