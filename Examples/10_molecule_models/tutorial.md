@@ -42,4 +42,4 @@ This function is similair to **to_molecule_no_defect()**, start by reading its d
 
 How to use
 ----
-See file **test.py** for example of how to use the functions.
+See files **defect_script.py** and **host_script.py** for example of how to use the functions.

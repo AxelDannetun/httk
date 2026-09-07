@@ -17,19 +17,20 @@ from pprint import pprint
 from classes import *
 
 
-setting = "tricky"  # "diamond", "cao", "tricky"
+setting = "diamond"  # "diamond", "cao", "tricky"
+database_path = '../../' #Change to the path where the database is located
 
 match setting:
     case "diamond":
-        backend = httk.db.backend.Sqlite('diamond/defects.sqlite')
+        backend = httk.db.backend.Sqlite(database_path + 'diamond/defects.sqlite')
         defect_type = 'NV'
         #host = httk.load('input/Diamond.cif')
     case "cao":
-        backend = httk.db.backend.Sqlite('cao/defects.sqlite')
+        backend = httk.db.backend.Sqlite(database_path + 'cao/defects.sqlite')
         defect_type = 'BiV'
         #host = httk.load('input/Calcium_oxide.cif')
     case "tricky":
-        backend = httk.db.backend.Sqlite('sic/defects.sqlite')
+        backend = httk.db.backend.Sqlite(database_path + 'sic/defects.sqlite')
         defect_type = 'Tricky'
         #host = httk.load('input/Silicon_carbide.cif')
     case _:
